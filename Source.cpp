@@ -106,7 +106,7 @@ arg1: tablica charów, która przchowa atrybut 0x30 (filename), arg2 nazwa pliku
 return: d³ugoœæ atrybutu
 */
 
-int create_file_header(char* bytes)
+int create_file_header(unsigned char* bytes, int index)
 {
 	int length = 0;
 	// uzupe³nienie magic number
@@ -129,26 +129,27 @@ int create_file_header(char* bytes)
 	bytes[22] = 0x01;
 	// real size of file record
 	bytes[24] = 0x00;
-	bytes[26] = 0x04;
+	bytes[25] = 0x04;
 	// allocated size of file record
 	bytes[28] = 0x00;
-	bytes[30] = 0x04;
+	bytes[29] = 0x04;
 	// next attribute id
 	bytes[40] = 0x05;
-	// number of MFT record
-	bytes[46] = 0x2E;
 	// update sequence number
-	bytes[48] = 0x01;
+	bytes[44] = index;
 	length = 56;
 	return length;
 }
 
-int create_standard_attribute(char* bytes)
+int create_standard_attribute(unsigned char* bytes)
 {
 	int length = 96;
 	bytes[0] = 0x10;
 	bytes[4] = length; // d³ugoœæ wraz z nag³ówkiem
 	bytes[20] = 0x18;
+	bytes[56] = 0x20; // DOS permissions
+	bytes[76] = 0x0C; //security ID
+	bytes[77] = 0x01;
 	bytes[16] = length - 24; // d³ugoœæ atrybutu
 	return length;
 }
@@ -215,59 +216,56 @@ int main(int* argc, char** argv)
 	}
 
 	cout << record_sector << endl;
+	int record_index = (record_sector - MFT_sector) / 2;
+	// utworzenie nag³ówka dla rekordu plikowego
+	unsigned char header_bytes[512] = { 0 };
+	int header_length = create_file_header(header_bytes, record_index); 
 
-	//// utworzenie nag³ówka dla rekordu plikowego
-	//char header_bytes[512] = { 0 };
-	//int header_length = create_file_header(header_bytes);
+	//utworzenie atrybutu 0x10 dla rekordu plikowego
+	unsigned char standard_bytes[512] = { 0 };
+	int standard_length = create_standard_attribute(standard_bytes);
 
-	//// utworzenie atrybutu 0x10 dla rekordu plikowego
-	//char standard_bytes[512] = { 0 };
-	//int standard_length = create_standard_attribute(standard_bytes);
-
-	//// utworzenie atrybutu 0x30 dla rekordu plikowego
+	// utworzenie atrybutu 0x30 dla rekordu plikowego
 	unsigned char filename_bytes[512] = { 0 };
 	int filename_length = create_file_name(filename_bytes, txt_path);
-	for (int i = 0; i < filename_length; i++)
-	{
-		if (i % 16 == 0)
-			cout << endl;
-		cout << hex << (int)filename_bytes[i] << " ";
-	}
 
 	// utworzenie atrybutu 0x80 dla rekordu plikowego
 	unsigned char data_bytes[512] = { 0 };
 	int data_length = create_data_attribute(data_bytes);
 
-	//header_bytes[24] = 0x24;
-	//header_bytes[25] = 0x01;
+	// laczna dlugosc rekordu wynosi 292
+	header_bytes[24] = 0x24;
+	header_bytes[25] = 0x1;
 
-	//char file_bytes[512] = { 0 };
-	//// sklejenie atrybutów w jeden sektor
-	//int j = 0;
-	//for (int i = 0; i < header_length; i++)
-	//{
-	//	file_bytes[j] = header_bytes[i];
-	//	j++;
-	//}
-	//for (int i = 0; i < standard_length; i++)
-	//{
-	//	file_bytes[j] = standard_bytes[i];
-	//	j++;
-	//}
-	//for (int i = 0; i < filename_length; i++)
-	//{
-	//	file_bytes[j] = filename_bytes[i];
-	//	j++;
-	//}
-	//for (int i = 0; i < data_length; i++)
-	//{
-	//	file_bytes[j] = data_bytes[i];
-	//	j++;
-	//}
-	//file_bytes[j] = 255;
-	//file_bytes[j + 1] = 255;
-	//file_bytes[j + 2] = 255;
-	//file_bytes[j + 3] = 255;
+	unsigned char file_bytes[512] = { 0 };
+	// sklejenie atrybutów w jeden sektor
+	int j = 0;
+	for (int i = 0; i < header_length; i++)
+	{
+		file_bytes[j] = header_bytes[i];
+		j++;
+	}
+	for (int i = 0; i < standard_length; i++)
+	{
+		file_bytes[j] = standard_bytes[i];
+		j++;
+	}
+	for (int i = 0; i < filename_length; i++)
+	{
+		file_bytes[j] = filename_bytes[i];
+		j++;
+	}
+	for (int i = 0; i < data_length; i++)
+	{
+		file_bytes[j] = data_bytes[i];
+		j++;
+	}
+	file_bytes[j] = 255;
+	file_bytes[j + 1] = 255;
+	file_bytes[j + 2] = 255;
+	file_bytes[j + 3] = 255;
+
+	int record_size = header_length + standard_length + filename_length + data_length + 4;
 	//// do³¹czenie wêz³a dla pliku w katalogie nadrzêdnym
 	//sector dest = *s;
 	//disk_image.close();
