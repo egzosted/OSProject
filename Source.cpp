@@ -21,7 +21,7 @@ using namespace std;
 
 const int SECTOR_SIZE = 512;
 const int CLUSTER_SIZE = 4096;
-const int DIRECTORY_MFT_IND = 38; // indeks katalogu docelowego w tablicy MFT
+const int DIRECTORY_MFT_IND = 43; // indeks katalogu docelowego w tablicy MFT
 const int SECTORS_PER_INDEX = 2;
 
 struct sector {
@@ -70,17 +70,18 @@ arg1: tablica charów, która przchowa atrybut 0x30 (filename), arg2 nazwa pliku
 return: d³ugoœæ atrybutu
 */
 
-int create_file_name(char* bytes, string filename)
+int create_file_name(unsigned char* bytes, string filename)
 {
+	const int attribute_header_size = 24;
 	bytes[0] = 0x30; // wartoœæ atrybutu
 	bytes[14] = 0x03; // attribute Id
 	bytes[20] = 0x18; // offset do atrybutu
 	bytes[22] = 0x01; // indexed flag
-	bytes[24] = 0x25; // numer indeksu katalogu nadrzêdnego w MFT
-	bytes[30] = 0x01; // sequence number katalogu nadrzêdnego
+	bytes[24] = DIRECTORY_MFT_IND; // numer indeksu katalogu nadrzêdnego w MFT
+	bytes[30] = 0x02; // sequence number katalogu nadrzêdnego
 	bytes[80] = 0x20;
-	bytes[81] = 0x20;
 	int length = 88;
+	int real_length = 0;
 	bytes[88] = filename.size();
 	length += 2;
 	for (int i = 0; i < filename.size(); i++)
@@ -88,13 +89,14 @@ int create_file_name(char* bytes, string filename)
 		bytes[90 + 2 * i] = filename[i];
 		length += 2;
 	}
+	real_length = length;
 	if (length % 8 != 0)
 	{
 		while (length % 8 != 0)
 			length++;
 	}
 	bytes[4] = length; // d³ugoœæ wraz z nag³ówkiem
-	bytes[16] = length - 24; // d³ugoœæ atrybutu
+	bytes[16] = real_length - attribute_header_size; // d³ugoœæ atrybutu
 	return length;
 }
 
@@ -151,14 +153,14 @@ int create_standard_attribute(char* bytes)
 	return length;
 }
 
-int create_data_attribute(char* bytes)
+int create_data_attribute(unsigned char* bytes)
 {
 	int length = 24;
-	bytes[0] = 0x80;
+	bytes[0] = 0x80; // kod atrybutu
 	bytes[4] = length; // d³ugoœæ wraz z nag³ówkiem
-	bytes[10] = 0x18; // offset to name
+	bytes[10] = 0x18; // offset do nazwy
 	bytes[14] = 0x01; // attribute id
-	bytes[20] = 0x18;
+	bytes[20] = 0x18; // offset do atrybutu
 	bytes[16] = 0x00; // d³ugoœæ atrybutu
 	return length;
 }
@@ -175,11 +177,11 @@ int main(int* argc, char** argv)
 	ifstream disk_image(img_path, ios::binary);
 	if (!disk_image)
 	{
-		cout << "Nie udalo sie otworzyc" << endl;
+		cout << "Nie udalo sie otworzyc do odczytu" << endl;
 	}
 	else
 	{
-		cout << "Udalo sie otworzyc" << endl;
+		cout << "Udalo sie otworzyc do odczytu" << endl;
 	}
 	// pobranie sektora vbs dla partycji NTFS w folderze projektu (ntfs.vhd) (dla innej struktury wystarczy zmieniæ vbs.address)
 	sector vbs;
@@ -192,17 +194,16 @@ int main(int* argc, char** argv)
 	vbs.sector_no = vbs.address / SECTOR_SIZE;
 	
 	int MFT_sector = get_MFT_sector_no(vbs);
-	cout << MFT_sector << endl;
 
 	advance(s, MFT_sector - vbs.sector_no); // przesuniêcie iteratora obrazu dysku z pocz¹tku na sektor MFT
 	sector mft;
 
-	advance(s, DIRECTORY_MFT_IND * SECTORS_PER_INDEX); // przesuniêcie iteratora na folder Destination
+	// advance(s, DIRECTORY_MFT_IND * SECTORS_PER_INDEX); // przesuniêcie iteratora na folder Destination
 	auto s_file = s;
-	advance(s_file, SECTORS_PER_INDEX);
-	// szukanie wolnego miejsca na nowy rekord plikowy
+	 //szukanie wolnego miejsca na nowy rekord plikowy
 	sector record;
-	// faktyczne pliki użytkownika zaczynają się od 35. pliku
+	 //faktyczne pliki użytkownika zaczynają się od 35. pliku
+	advance(s_file, 35 * SECTORS_PER_INDEX);
 	int record_sector = MFT_sector + 35 * SECTORS_PER_INDEX;
 	while (true)
 	{
@@ -213,6 +214,7 @@ int main(int* argc, char** argv)
 		record_sector += SECTORS_PER_INDEX;
 	}
 
+	cout << record_sector << endl;
 
 	//// utworzenie nag³ówka dla rekordu plikowego
 	//char header_bytes[512] = { 0 };
@@ -223,12 +225,18 @@ int main(int* argc, char** argv)
 	//int standard_length = create_standard_attribute(standard_bytes);
 
 	//// utworzenie atrybutu 0x30 dla rekordu plikowego
-	//char filename_bytes[512] = { 0 };
-	//int filename_length = create_file_name(filename_bytes, txt_path);
+	unsigned char filename_bytes[512] = { 0 };
+	int filename_length = create_file_name(filename_bytes, txt_path);
+	for (int i = 0; i < filename_length; i++)
+	{
+		if (i % 16 == 0)
+			cout << endl;
+		cout << hex << (int)filename_bytes[i] << " ";
+	}
 
-	//// utworzenie atrybutu 0x80 dla rekordu plikowego
-	//char data_bytes[512] = { 0 };
-	//int data_length = create_data_attribute(data_bytes);
+	// utworzenie atrybutu 0x80 dla rekordu plikowego
+	unsigned char data_bytes[512] = { 0 };
+	int data_length = create_data_attribute(data_bytes);
 
 	//header_bytes[24] = 0x24;
 	//header_bytes[25] = 0x01;
@@ -299,7 +307,7 @@ int main(int* argc, char** argv)
 	/*ofstream write_image(img_path, ios::binary | ios::out | ios::in);
 	if (!write_image)
 	{
-		cout << "Nie udalo sie otworzyc" << endl;
+		cout << "Nie udalo sie otworzyc do zapisu" << endl;
 	}
 	else
 	{
