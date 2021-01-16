@@ -321,6 +321,8 @@ int main(int* argc, char** argv)
 	
 	int MFT_sector = get_MFT_sector_no(vbs);
 
+	cout << MFT_sector << endl;
+
 	advance(s, MFT_sector - vbs.sector_no); // przesuniecie iteratora obrazu dysku z poczatku na sektor MFT
 	sector mft;
 
@@ -410,8 +412,11 @@ int main(int* argc, char** argv)
 		if ((uint8_t)dest.bytes[offsetx90] == 0x90 && dest.bytes[offsetx90 + 1] == 0x00 && dest.bytes[offsetx90 + 2] == 0x00 && dest.bytes[offsetx90 + 3] == 0x00)
 			break;
 	}
-	dest.bytes[offsetx90 + 4] += 0x68; // zwiekszony rozmiar atrybutu
-	dest.bytes[offsetx90 + 16] += 0x68; // zwiekszony rozmiar atrybutu bez naglowka
+	// manualnie zwiekszony rozmiar atrybutu
+	dest.bytes[offsetx90 + 4] = 0x20;
+	dest.bytes[offsetx90 + 5] = 0x01;
+	dest.bytes[offsetx90 + 16] = 0x00;
+	dest.bytes[offsetx90 + 17] = 0x01;
 	dest.bytes[offsetx90 + 52] += 0x68; // zwiekszony rozmiar wezlow
 	dest.bytes[offsetx90 + 56] += 0x68; // zwiekszony rozmiar pamieci zaalokowanej na wezly
 	offsetx90 += 64;
@@ -439,8 +444,8 @@ int main(int* argc, char** argv)
 	offsetx90 += 4;
 	cout << offsetx90 << endl;
 	// aktualizacja wielkosci rekordu plikowego katalogu nadrzednego
-	dest.bytes[24] = 0xE4;
-	dest.bytes[25] = 0x1;
+	dest.bytes[24] = 0x50;
+	dest.bytes[25] = 0x2;
 	for (int i = 0; i < offsetx90; i++)
 	{
 		if (i % 16 == 0)
