@@ -1,12 +1,13 @@
 ﻿/*
 	Autor: Michal Piekarski 175456
 	Przedmiot: Oprogramowanie Systemowe
-	Zadanie: Kopiowanie pliku .txt z systemu hosta na pen drive z systemem plików NTFS
+	Zadanie: Kopiowanie pliku .txt z systemu hosta na partycję z systemem plików NTFS
 
-	Za³o¿enie: Plik znajdzie sie w katalogu "Destination", VBS znajduje sie pod adresem 0x1000000.
+	Zalozenie: Plik znajdzie sie w katalogu "Destination", VBS znajduje sie pod adresem 0x1000000.
 			   Aby zmienic te wartosci nalezy zmienic numer indeksu w
-			   tablicy MFT folderu docelowego (domyslnie Destination) poprzez zmianê stalej, a
-			   do zmiany sektora VBS nalezy zmienic jego adres.
+			   tablicy MFT folderu docelowego (domyslnie Destination) poprzez zmiane stalej, a
+			   do zmiany sektora VBS nalezy zmienic jego adres. W funkcjach tworzacych poszczegolne, stale
+			   z przedrostkiem V odpowiadaja za wartosci, a bez przedrostka za offset.
 
 	Uruchomienie: Program bierze argumenty: 
 		1. Sciezka do pliku tekstowego w systemie hosta
@@ -77,13 +78,31 @@ int create_file_name(unsigned char* bytes, string filename)
 	const int ALTER_TIME = 40;
 	const int MFT_TIME = 48;
 	const int READ_TIME = 56;
-	bytes[0] = 0x30; // wartosc atrybutu
-	bytes[14] = 0x03; // attribute Id
-	bytes[20] = 0x18; // offset do atrybutu
-	bytes[22] = 0x01; // indexed flag
-	bytes[24] = DIRECTORY_MFT_IND; // numer indeksu katalogu nadrzednego w MFT
-	bytes[30] = 0x04; // sequence number katalogu nadrzednego
-	bytes[80] = 0x20;
+	const int V_PARENT_SEQUENCE = 0x04;
+	const int ATTRIBUTE_TYPE = 0x00;
+	const int V_ATTRIBUTE_TYPE = 0x30;
+	const int ATTRIBUTE_LENGTH = 0x04;
+	const int ATTRIBUTE_LENGTH_WO_HEADER = 0x10;
+	const int ATTRIBUTE_ID = 0x0D;
+	const int V_ATTRIBUTE_ID = 0x03;
+	const int ATTRIBUTE_OFFSET = 0x14;
+	const int V_ATTRIBUTE_OFFSET = 0x18;
+	const int INDEXED_FLAG = 0x16;
+	const int V_INDEXED_FLAG = 1;
+	const int FILE_REFERENCE = 0x18;
+	const int PARENT_SEQUENCE = 0x1E;
+	const int FLAGS = 0x50;
+	const int NOT_INDEXED = 0x20;
+	const int FILENAME_LENGTH = 0x58;
+	const int FILENAME = 0x5A;
+
+	bytes[ATTRIBUTE_TYPE] = V_ATTRIBUTE_TYPE; // wartosc atrybutu
+	bytes[ATTRIBUTE_ID] = V_ATTRIBUTE_ID; // attribute Id
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do atrybutu
+	bytes[INDEXED_FLAG] = V_INDEXED_FLAG; // indexed flag
+	bytes[FILE_REFERENCE] = DIRECTORY_MFT_IND; // numer indeksu katalogu nadrzednego w MFT
+	bytes[PARENT_SEQUENCE] = V_PARENT_SEQUENCE; // sequence number katalogu nadrzednego
+	bytes[FLAGS] = NOT_INDEXED;
 
 	// znaczniki czasu
 	// czas stworzenia
@@ -127,11 +146,11 @@ int create_file_name(unsigned char* bytes, string filename)
 	bytes[READ_TIME + 7] = 0x01;
 	int length = 88;
 	int real_length = 0;
-	bytes[88] = filename.size();
+	bytes[FILENAME_LENGTH] = filename.size();
 	length += 2;
 	for (int i = 0; i < filename.size(); i++)
 	{
-		bytes[90 + 2 * i] = filename[i];
+		bytes[FILENAME + 2 * i] = filename[i];
 		length += 2;
 	}
 	real_length = length;
@@ -140,8 +159,8 @@ int create_file_name(unsigned char* bytes, string filename)
 		while (length % 8 != 0)
 			length++;
 	}
-	bytes[4] = length; // dlugosc wraz z naglówkiem
-	bytes[16] = real_length - attribute_header_size; // dlugosc atrybutu
+	bytes[ATTRIBUTE_LENGTH] = length; // dlugosc wraz z naglówkiem
+	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = real_length - attribute_header_size; // dlugosc atrybutu
 	return length;
 }
 
@@ -153,38 +172,60 @@ return: dlugosc atrybutu
 
 int create_file_header(unsigned char* bytes, int index)
 {
+	const int MAGIC = 0x00;
+	const int UPDATE_SEQUENCE_OFFSET = 0x04;
+	const int V_UPDATE_SEQUENCE_OFFSET = 0x30;
+	const int UPDATE_SEQUENCE_SIZE = 0x06;
+	const int V_UPDATE_SEQUENCE_SIZE = 0x03;
+	const int SEQUENCE_NUMBER = 0x10;
+	const int V_SEQUENCE_NUMBER = 0x01;
+	const int HARD_LINK_COUNT = 0x12;
+	const int V_HARD_LINK_COUNT = 0x01;
+	const int ATTRIBUTE_OFFSET = 0x14;
+	const int V_ATTRIBUTE_OFFSET = 0x38;
+	const int FLAGS = 0x16;
+	const int IN_USE = 0x01;
+	const int REAL_SIZE = 0x18;
+	const int ALLOCATED_SIZE = 0x1C;
+	const int NEXT_ATTRIBUTE_ID = 0x28;
+	const int V_NEXT_ATTRIBUTE_ID = 0x05;
+	const int HEADER_SIZE = 56;
+	const int MFT_RECORD = 0x2C;
+	const int UPDATE_SEQUENCE_NUMBER = 0x30;
+	const int V_UPDATE_SEQUENCE_NUMBER = 0x01;
+
 	int length = 0;
-	// uzupe³nienie magic number
-	bytes[0] = 0x46;
-	bytes[1] = 0x49;
-	bytes[2] = 0x4C;
-	bytes[3] = 0x45;
+	// uzupelnienie magic number
+	bytes[MAGIC] = 0x46;
+	bytes[MAGIC + 1] = 0x49;
+	bytes[MAGIC + 2] = 0x4C;
+	bytes[MAGIC + 3] = 0x45;
 	// offset do pola update sequence (pole 2 bitowe)
-	bytes[4] = 0x30;
+	bytes[UPDATE_SEQUENCE_OFFSET] = V_UPDATE_SEQUENCE_OFFSET;
 	// update sequence size in word (2 bajty)
-	bytes[6] = 0x03;
+	bytes[UPDATE_SEQUENCE_SIZE] = V_UPDATE_SEQUENCE_SIZE;
 	// ??? $LogFile sequence number
 
 	// sequence number
-	bytes[16] = 0x01;
+	bytes[SEQUENCE_NUMBER] = V_SEQUENCE_NUMBER;
 	// hard link count
-	bytes[18] = 0x01;
+	bytes[HARD_LINK_COUNT] = V_HARD_LINK_COUNT;
 	// offset to first attribute
-	bytes[20] = 0x38;
-	bytes[22] = 0x01;
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET;
+	bytes[FLAGS] = IN_USE;
 	// real size of file record, needs to be changed
-	bytes[24] = 0x00;
-	bytes[25] = 0x04;
+	bytes[REAL_SIZE] = 0x00;
+	bytes[REAL_SIZE + 1] = 0x04;
 	// allocated size of file record
-	bytes[28] = 0x00;
-	bytes[29] = 0x04;
+	bytes[ALLOCATED_SIZE] = 0x00;
+	bytes[ALLOCATED_SIZE + 1] = 0x04;
 	// next attribute id
-	bytes[40] = 0x05;
+	bytes[NEXT_ATTRIBUTE_ID] = V_NEXT_ATTRIBUTE_ID;
 	// number of MFT record 
-	bytes[44] = index;
+	bytes[MFT_RECORD] = index;
 	// update sequence number
-	bytes[48] = 0x01;
-	length = 56;
+	bytes[UPDATE_SEQUENCE_NUMBER] = V_UPDATE_SEQUENCE_NUMBER;
+	length = HEADER_SIZE;
 	return length;
 }
 
@@ -195,9 +236,19 @@ int create_standard_attribute(unsigned char* bytes)
 	const int ALTER_TIME = 32;
 	const int MFT_TIME = 40;
 	const int READ_TIME = 48;
-	bytes[0] = 0x10;
-	bytes[4] = length; // dlugoscwraz z naglówkiem
-	bytes[20] = 0x18;
+	const int ATTRIBUTE_TYPE = 0x00;
+	const int V_ATTRIBUTE_TYPE = 0x10;
+	const int ATTRIBUTE_LENGTH = 0x04;
+	const int ATTRIBUTE_OFFSET = 0x14;
+	const int V_ATTRIBUTE_OFFSET = 0x18;
+	const int ATTRIBUTE_LENGTH_WO_HEADER = 0x10;
+	const int SECURITY_ID = 76;
+	const int DOS_PERMISSIONS = 56;
+	const int ARCHIVE = 0x20;
+
+	bytes[ATTRIBUTE_TYPE] = V_ATTRIBUTE_TYPE;
+	bytes[ATTRIBUTE_LENGTH] = length; // dlugoscwraz z naglówkiem
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET;
 
 	// znaczniki czasu
 	// czas stworzenia
@@ -240,35 +291,54 @@ int create_standard_attribute(unsigned char* bytes)
 	bytes[READ_TIME + 6] = 0xD6;
 	bytes[READ_TIME + 7] = 0x01;
 
-	bytes[56] = 0x20; // DOS permissions
-	bytes[76] = 0x0E; //security ID
-	bytes[77] = 0x01;
-	bytes[16] = length - 24; // dlugosc atrybutu
+	bytes[DOS_PERMISSIONS] = ARCHIVE; // DOS permissions
+	bytes[SECURITY_ID] = 0x0E; //security ID
+	bytes[SECURITY_ID + 1] = 0x01;
+	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = length - 24; // dlugosc atrybutu
 	return length;
 }
 
 int create_data_attribute(unsigned char* bytes)
 {
 	int length = 24;
-	bytes[0] = 0x80; // kod atrybutu
-	bytes[4] = length; // dlugosc wraz z naglówkiem
-	bytes[10] = 0x18; // offset do nazwy
-	bytes[14] = 0x01; // attribute id
-	bytes[20] = 0x18; // offset do atrybutu
-	bytes[16] = 0x00; // dlugosc atrybutu
+	const int ATTRIBUTE_TYPE = 0x00;
+	const int V_ATTRIBUTE_TYPE = 0x80;
+	const int ATTRIBUTE_LENGTH = 0x04;
+	const int ATTRIBUTE_LENGTH_WO_HEADER = 0x10;
+	const int ATTRIBUTE_ID = 0x0D;
+	const int V_ATTRIBUTE_ID = 0x01;
+	const int ATTRIBUTE_OFFSET = 0x14;
+	const int V_ATTRIBUTE_OFFSET = 0x18;
+
+	bytes[ATTRIBUTE_TYPE] = V_ATTRIBUTE_TYPE; // kod atrybutu
+	bytes[ATTRIBUTE_LENGTH] = length; // dlugosc wraz z naglówkiem
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do nazwy
+	bytes[ATTRIBUTE_ID] = V_ATTRIBUTE_ID; // attribute id
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do atrybutu
+	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = 0x00; // dlugosc atrybutu
 	return length;
 }
 
 int create_object_id_attribute(unsigned char* bytes)
 {
+	const int ATTRIBUTE_TYPE = 0x00;
+	const int V_ATTRIBUTE_TYPE = 0x40;
+	const int ATTRIBUTE_LENGTH = 0x04;
+	const int ATTRIBUTE_LENGTH_WO_HEADER = 0x10;
+	const int ATTRIBUTE_ID = 0x0D;
+	const int V_ATTRIBUTE_ID = 0x04;
+	const int ATTRIBUTE_OFFSET = 0x14;
+	const int V_ATTRIBUTE_OFFSET = 0x18;
+	const int INDEXED_FLAG = 0x16;
+	const int V_INDEXED_FLAG = 1;
 	const int GUID = 24;
 	int length = 40;
-	bytes[0] = 0x40; // kod atrybutu
-	bytes[4] = length; // dlugosc wraz z naglówkiem
-	bytes[10] = 0x18; // offset do nazwy
-	bytes[14] = 0x04; // attribute id
-	bytes[20] = 0x18; // offset do atrybutu
-	bytes[16] = 0x10; // dlugosc atrybutu
+	bytes[ATTRIBUTE_TYPE] = V_ATTRIBUTE_TYPE; // kod atrybutu
+	bytes[ATTRIBUTE_LENGTH] = length; // dlugosc wraz z naglówkiem
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do nazwy
+	bytes[ATTRIBUTE_ID] = V_ATTRIBUTE_ID; // attribute id
+	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do atrybutu
+	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = ATTRIBUTE_LENGTH_WO_HEADER; // dlugosc atrybutu
 
 	bytes[GUID] = 0x1A; 
 	bytes[GUID + 1] = 0xA2;
