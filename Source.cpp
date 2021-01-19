@@ -9,6 +9,10 @@
 			   do zmiany sektora VBS nalezy zmienic jego adres. W funkcjach tworzacych poszczegolne, stale
 			   z przedrostkiem V odpowiadaja za wartosci, a bez przedrostka za offset.
 
+	Do zmiany zawsze:
+				- parent sequence
+				- laczna dlugosc rekordu
+
 	Uruchomienie: Program bierze argumenty: 
 		1. Sciezka do pliku tekstowego w systemie hosta
 		2. Obraz dysku z systemem plików.
@@ -22,7 +26,7 @@ using namespace std;
 
 const int SECTOR_SIZE = 512;
 const int CLUSTER_SIZE = 4096;
-const int DIRECTORY_MFT_IND = 43; // indeks katalogu docelowego w tablicy MFT
+const int DIRECTORY_MFT_IND = 38; // indeks katalogu docelowego w tablicy MFT
 const int SECTORS_PER_INDEX = 2;
 
 struct sector {
@@ -78,7 +82,7 @@ int create_file_name(unsigned char* bytes, string filename)
 	const int ALTER_TIME = 40;
 	const int MFT_TIME = 48;
 	const int READ_TIME = 56;
-	const int V_PARENT_SEQUENCE = 0x04;
+	const int V_PARENT_SEQUENCE = 0x02;
 	const int ATTRIBUTE_TYPE = 0x00;
 	const int V_ATTRIBUTE_TYPE = 0x30;
 	const int ATTRIBUTE_LENGTH = 0x04;
@@ -309,6 +313,8 @@ int create_data_attribute(unsigned char* bytes)
 	const int V_ATTRIBUTE_ID = 0x01;
 	const int ATTRIBUTE_OFFSET = 0x14;
 	const int V_ATTRIBUTE_OFFSET = 0x18;
+	const int ATTRIBUTE_OFFSET_NAME = 0x0A;
+	const int V_ATTRIBUTE_OFFSET_NAME = 0x18;
 
 	bytes[ATTRIBUTE_TYPE] = V_ATTRIBUTE_TYPE; // kod atrybutu
 	bytes[ATTRIBUTE_LENGTH] = length; // dlugosc wraz z naglówkiem
@@ -316,6 +322,7 @@ int create_data_attribute(unsigned char* bytes)
 	bytes[ATTRIBUTE_ID] = V_ATTRIBUTE_ID; // attribute id
 	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do atrybutu
 	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = 0x00; // dlugosc atrybutu
+	bytes[ATTRIBUTE_OFFSET_NAME] = V_ATTRIBUTE_OFFSET_NAME; // offset do nazwy
 	return length;
 }
 
@@ -337,7 +344,6 @@ int create_object_id_attribute(unsigned char* bytes)
 	bytes[ATTRIBUTE_LENGTH] = length; // dlugosc wraz z naglówkiem
 	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do nazwy
 	bytes[ATTRIBUTE_ID] = V_ATTRIBUTE_ID; // attribute id
-	bytes[ATTRIBUTE_OFFSET] = V_ATTRIBUTE_OFFSET; // offset do atrybutu
 	bytes[ATTRIBUTE_LENGTH_WO_HEADER] = ATTRIBUTE_LENGTH_WO_HEADER; // dlugosc atrybutu
 
 	bytes[GUID] = 0x1A; 
@@ -391,7 +397,7 @@ int main(int* argc, char** argv)
 	
 	int MFT_sector = get_MFT_sector_no(vbs);
 
-	cout << MFT_sector << endl;
+	cout << "Tablica MFT rozpoczyna sie od sektora numer: " << MFT_sector << endl;
 
 	advance(s, MFT_sector - vbs.sector_no); // przesuniecie iteratora obrazu dysku z poczatku na sektor MFT
 	sector mft;
@@ -412,6 +418,8 @@ int main(int* argc, char** argv)
 		record_sector += SECTORS_PER_INDEX;
 	}
 
+	cout << "Rekord pliku zostanie zapisany na sektorze numer: " << record_sector << endl;
+
 	int record_index = (record_sector - MFT_sector) / 2;
 	// utworzenie naglowka dla rekordu plikowego
 	unsigned char header_bytes[512] = { 0 };
@@ -429,13 +437,16 @@ int main(int* argc, char** argv)
 	unsigned char object_bytes[512] = { 0 };
 	int object_length = create_object_id_attribute(object_bytes);
 
+
 	// utworzenie atrybutu 0x80 dla rekordu plikowego
 	unsigned char data_bytes[512] = { 0 };
 	int data_length = create_data_attribute(data_bytes);
 
-	// laczna dlugosc rekordu wynosi 292
-	header_bytes[24] = 0x40;
-	header_bytes[25] = 0x1;
+
+	// wpisanie lacznej dlugosci rekordu
+	const int RECORD_SIZE = 24;
+	header_bytes[RECORD_SIZE] = 0x50;
+	header_bytes[RECORD_SIZE + 1] = 0x1;
 
 	unsigned char file_bytes[1024] = { 0 };
 	// sklejenie atrybutów w jeden sektor
@@ -473,8 +484,10 @@ int main(int* argc, char** argv)
 	int record_size = header_length + standard_length + filename_length + object_length + data_length + 4;
 	disk_image.close();
 
-	file_bytes[510] = 0x01;
-	file_bytes[1022] = 0x01;
+	const int SEQUENCE_CHECK = 510;
+	file_bytes[SEQUENCE_CHECK] = 0x01;
+	file_bytes[SEQUENCE_CHECK + SECTOR_SIZE] = 0x01;
+
 	// dołączenie węzła dla pliku w katalogie nadrzędnym
 	int offsetx90 = 0;
 	for (offsetx90; offsetx90 < 512; offsetx90 += 4)
@@ -482,17 +495,18 @@ int main(int* argc, char** argv)
 		if ((uint8_t)dest.bytes[offsetx90] == 0x90 && dest.bytes[offsetx90 + 1] == 0x00 && dest.bytes[offsetx90 + 2] == 0x00 && dest.bytes[offsetx90 + 3] == 0x00)
 			break;
 	}
+	cout << offsetx90 << endl;
 	// manualnie zwiekszony rozmiar atrybutu
-	dest.bytes[offsetx90 + 4] = 0x20;
-	dest.bytes[offsetx90 + 5] = 0x01;
-	dest.bytes[offsetx90 + 16] = 0x00;
-	dest.bytes[offsetx90 + 17] = 0x01;
-	dest.bytes[offsetx90 + 52] += 0x68; // zwiekszony rozmiar wezlow
-	dest.bytes[offsetx90 + 56] += 0x68; // zwiekszony rozmiar pamieci zaalokowanej na wezly
+	dest.bytes[offsetx90 + 4] = 0xB8;
+	dest.bytes[offsetx90 + 16] = 0x98;
+	dest.bytes[offsetx90 + 52] = 0x88; // zwiekszony rozmiar wezlow
+	dest.bytes[offsetx90 + 56] = 0x88; // zwiekszony rozmiar pamieci zaalokowanej na wezly
 	offsetx90 += 64;
 	unsigned char copy[16] = { 0 };
-	for (int i = 0; i < 16; i++)
+	for (int i = 0; i < 16; i++) {
 		copy[i] = dest.bytes[offsetx90 + i];
+	}
+	cout << endl;
 	dest.bytes[offsetx90] = record_index;
 	dest.bytes[offsetx90 + 6] = 0x01;
 	dest.bytes[offsetx90 + 8] = 0x68;
@@ -512,11 +526,10 @@ int main(int* argc, char** argv)
 	dest.bytes[offsetx90 + 2] = 255;
 	dest.bytes[offsetx90 + 3] = 255;
 	offsetx90 += 4;
-	cout << offsetx90 << endl;
 	// aktualizacja wielkosci rekordu plikowego katalogu nadrzednego
-	dest.bytes[24] = 0x50;
+	dest.bytes[24] = 0xA6;
 	dest.bytes[25] = 0x2;
-	for (int i = 0; i < offsetx90; i++)
+	for (int i = 0; i < 512; i++)
 	{
 		if (i % 16 == 0)
 			cout << endl;
